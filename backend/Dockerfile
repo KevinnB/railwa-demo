@@ -11,6 +11,7 @@ RUN npm install
 FROM deps AS prisma
 COPY prisma ./prisma
 COPY prisma.config.ts ./
+ARG DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 RUN npx prisma generate
 
 # Production
