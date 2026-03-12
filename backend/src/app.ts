@@ -9,29 +9,27 @@ export async function buildApp() {
     logger: true,
   });
 
-  // Swagger — dev only
-  if (process.env.NODE_ENV !== "production") {
-    const swagger = await import("@fastify/swagger");
-    const swaggerUi = await import("@fastify/swagger-ui");
+  // Swagger
+  const swagger = await import("@fastify/swagger");
+  const swaggerUi = await import("@fastify/swagger-ui");
 
-    await app.register(swagger.default, {
-      openapi: {
-        info: {
-          title: "Railwa Demo API",
-          version: "1.0.0",
-          description: "Fastify + Prisma + Redis POC",
-        },
-        tags: [
-          { name: "items", description: "Items CRUD" },
-          { name: "health", description: "Health checks" },
-        ],
+  await app.register(swagger.default, {
+    openapi: {
+      info: {
+        title: "Railwa Demo API",
+        version: "1.0.0",
+        description: "Fastify + Prisma + Redis POC",
       },
-    });
+      tags: [
+        { name: "items", description: "Items CRUD" },
+        { name: "health", description: "Health checks" },
+      ],
+    },
+  });
 
-    await app.register(swaggerUi.default, {
-      routePrefix: "/docs",
-    });
-  }
+  await app.register(swaggerUi.default, {
+    routePrefix: "/docs",
+  });
 
   // Plugins
   await app.register(dbPlugin);
