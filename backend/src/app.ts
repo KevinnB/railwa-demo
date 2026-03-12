@@ -6,7 +6,6 @@ import { auth } from "./lib/auth.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
 import itemRoutes from "./routes/items.js";
-import protectedItemRoutes from "./routes/protected-items.js";
 import authRoutes from "./routes/auth.js";
 import healthRoutes from "./routes/health.js";
 
@@ -56,7 +55,6 @@ export function buildApp() {
   // Routes
   app.use(authRoutes);
   app.use(itemRoutes);
-  app.use("/protected", protectedItemRoutes);
   app.use(healthRoutes);
 
   // Graceful shutdown

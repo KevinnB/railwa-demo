@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { authenticate } from "../middleware/authenticate.js";
 import { itemService } from "../services/item.service.js";
 
 const router = Router();
@@ -9,6 +10,8 @@ const router = Router();
  *   get:
  *     tags: [items]
  *     summary: List all items
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Success
@@ -18,8 +21,14 @@ const router = Router();
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
-router.get("/items", async (_req: Request, res: Response) => {
+router.get("/items", authenticate, async (_req: Request, res: Response) => {
   const items = await itemService.list();
   res.json(items);
 });
@@ -30,6 +39,8 @@ router.get("/items", async (_req: Request, res: Response) => {
  *   get:
  *     tags: [items]
  *     summary: Get an item by ID
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - name: id
  *         in: path
@@ -44,6 +55,12 @@ router.get("/items", async (_req: Request, res: Response) => {
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: Not found
  *         content:
@@ -51,7 +68,7 @@ router.get("/items", async (_req: Request, res: Response) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+router.get("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   const item = await itemService.getById(req.params.id);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
@@ -66,6 +83,8 @@ router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *   post:
  *     tags: [items]
  *     summary: Create an item
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -88,9 +107,15 @@ router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
-router.post("/items", async (req: Request, res: Response) => {
-  const item = await itemService.create(req.body);
+router.post("/items", authenticate, async (req: Request, res: Response) => {
+  const item = await itemService.create(req.body, req.session.user.id);
   res.status(201).json(item);
 });
 
@@ -100,6 +125,8 @@ router.post("/items", async (req: Request, res: Response) => {
  *   put:
  *     tags: [items]
  *     summary: Update an item
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - name: id
  *         in: path
@@ -129,8 +156,14 @@ router.post("/items", async (req: Request, res: Response) => {
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
-router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+router.put("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   const item = await itemService.update(req.params.id, req.body);
   res.json(item);
 });
@@ -141,6 +174,8 @@ router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *   delete:
  *     tags: [items]
  *     summary: Delete an item
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - name: id
  *         in: path
@@ -151,8 +186,14 @@ router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *     responses:
  *       204:
  *         description: No content
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
-router.delete("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+router.delete("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   await itemService.remove(req.params.id);
   res.status(204).send();
 });
