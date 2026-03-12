@@ -1,11 +1,7 @@
 import { Router, Request, Response } from "express";
-import { prisma } from "../lib/prisma.js";
-import { cache } from "../lib/redis.js";
+import { itemService } from "../services/item.service.js";
 
 const router = Router();
-
-const CACHE_KEY_LIST = "items:list";
-const cacheKeyById = (id: string) => `items:${id}`;
 
 /**
  * @swagger
@@ -24,17 +20,7 @@ const cacheKeyById = (id: string) => `items:${id}`;
  *                 $ref: '#/components/schemas/Item'
  */
 router.get("/items", async (_req: Request, res: Response) => {
-  const cached = await cache.get(CACHE_KEY_LIST);
-  if (cached) {
-    res.json(cached);
-    return;
-  }
-
-  const items = await prisma.item.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-
-  await cache.set(CACHE_KEY_LIST, items);
+  const items = await itemService.list();
   res.json(items);
 });
 
@@ -66,21 +52,11 @@ router.get("/items", async (_req: Request, res: Response) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const { id } = req.params;
-
-  const cached = await cache.get(cacheKeyById(id));
-  if (cached) {
-    res.json(cached);
-    return;
-  }
-
-  const item = await prisma.item.findUnique({ where: { id } });
+  const item = await itemService.getById(req.params.id);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
-
-  await cache.set(cacheKeyById(id), item);
   res.json(item);
 });
 
@@ -114,11 +90,7 @@ router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *               $ref: '#/components/schemas/Item'
  */
 router.post("/items", async (req: Request, res: Response) => {
-  const item = await prisma.item.create({
-    data: req.body,
-  });
-
-  await cache.del(CACHE_KEY_LIST);
+  const item = await itemService.create(req.body);
   res.status(201).json(item);
 });
 
@@ -159,14 +131,7 @@ router.post("/items", async (req: Request, res: Response) => {
  *               $ref: '#/components/schemas/Item'
  */
 router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const { id } = req.params;
-
-  const item = await prisma.item.update({
-    where: { id },
-    data: req.body,
-  });
-
-  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  const item = await itemService.update(req.params.id, req.body);
   res.json(item);
 });
 
@@ -188,10 +153,7 @@ router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => 
  *         description: No content
  */
 router.delete("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const { id } = req.params;
-
-  await prisma.item.delete({ where: { id } });
-  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  await itemService.remove(req.params.id);
   res.status(204).send();
 });
 
