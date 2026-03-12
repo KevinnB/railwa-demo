@@ -11,7 +11,7 @@ RUN npm install
 FROM deps AS prisma
 COPY prisma ./prisma
 COPY prisma.config.ts ./
-RUN npx prisma generate
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Build TypeScript
 FROM prisma AS build
