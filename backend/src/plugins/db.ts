@@ -1,7 +1,7 @@
-import { PrismaClient } from "../generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import type { PrismaClient } from "../generated/prisma/client.js";
 import { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
+import { prisma } from "../lib/prisma.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -10,12 +10,6 @@ declare module "fastify" {
 }
 
 async function dbPlugin(fastify: FastifyInstance) {
-  const adapter = new PrismaPg({
-    connectionString: process.env.DATABASE_URL,
-  });
-
-  const prisma = new PrismaClient({ adapter });
-
   await prisma.$connect();
   fastify.log.info("Connected to PostgreSQL");
 

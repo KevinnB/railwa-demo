@@ -1,12 +1,22 @@
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import dbPlugin from "./plugins/db.js";
 import redisPlugin from "./plugins/redis.js";
+import authPlugin from "./plugins/auth.js";
 import itemRoutes from "./routes/items.js";
+import protectedItemRoutes from "./routes/protected-items.js";
+import authRoutes from "./routes/auth.js";
 import healthRoutes from "./routes/health.js";
 
 export async function buildApp() {
   const app = Fastify({
     logger: true,
+  });
+
+  // CORS — must be registered before auth routes
+  await app.register(cors, {
+    origin: process.env.CLIENT_ORIGIN || true,
+    credentials: true,
   });
 
   // Swagger
@@ -21,9 +31,20 @@ export async function buildApp() {
         description: "Fastify + Prisma + Redis POC",
       },
       tags: [
-        { name: "items", description: "Items CRUD" },
+        { name: "auth", description: "Authentication (sign up, sign in)" },
+        { name: "items", description: "Items CRUD (public)" },
+        { name: "protected-items", description: "Items CRUD (auth required)" },
         { name: "health", description: "Health checks" },
       ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            description: "Use the token from POST /auth/sign-in response",
+          },
+        },
+      },
     },
   });
 
@@ -34,9 +55,12 @@ export async function buildApp() {
   // Plugins
   await app.register(dbPlugin);
   await app.register(redisPlugin);
+  await app.register(authPlugin);
 
   // Routes
+  await app.register(authRoutes);
   await app.register(itemRoutes);
+  await app.register(protectedItemRoutes);
   await app.register(healthRoutes);
 
   return app;
