@@ -1,7 +1,9 @@
 import { prisma } from "../lib/prisma.js";
 import { cache } from "../lib/redis.js";
 
-const CACHE_KEY_LIST = "items:list";
+const CACHE_KEY_LIST_PREFIX = "items:list:";
+const cacheKeyList = (page: number, pageSize: number) =>
+  `${CACHE_KEY_LIST_PREFIX}page=${page}&pageSize=${pageSize}`;
 const cacheKeyById = (id: string) => `items:${id}`;
 
 interface CreateItemData {
@@ -15,16 +17,27 @@ interface UpdateItemData {
 }
 
 export const itemService = {
-  async list() {
-    const cached = await cache.get(CACHE_KEY_LIST);
+  async list(page = 1, pageSize = 10) {
+    const key = cacheKeyList(page, pageSize);
+    const cached = await cache.get(key);
     if (cached) return cached;
 
-    const items = await prisma.item.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    const [data, total] = await Promise.all([
+      prisma.item.findMany({
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.item.count(),
+    ]);
 
-    await cache.set(CACHE_KEY_LIST, items);
-    return items;
+    const result = {
+      data,
+      meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+
+    await cache.set(key, result);
+    return result;
   },
 
   async getById(id: string) {
@@ -43,7 +56,7 @@ export const itemService = {
       data: { ...data, userId },
     });
 
-    await cache.del(CACHE_KEY_LIST);
+    await cache.delPattern(`${CACHE_KEY_LIST_PREFIX}*`);
     return item;
   },
 
@@ -53,12 +66,14 @@ export const itemService = {
       data,
     });
 
-    await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+    await cache.delPattern(`${CACHE_KEY_LIST_PREFIX}*`);
+    await cache.del(cacheKeyById(id));
     return item;
   },
 
   async remove(id: string) {
     await prisma.item.delete({ where: { id } });
-    await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+    await cache.delPattern(`${CACHE_KEY_LIST_PREFIX}*`);
+    await cache.del(cacheKeyById(id));
   },
 };

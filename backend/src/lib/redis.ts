@@ -34,4 +34,11 @@ export const cache = {
       await redis.del(...keys);
     }
   },
+
+  async delPattern(pattern: string): Promise<void> {
+    const keys = await redis.keys(pattern);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  },
 };
