@@ -11,13 +11,7 @@ RUN npm install
 FROM deps AS prisma
 COPY prisma ./prisma
 COPY prisma.config.ts ./
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
-
-# Build TypeScript
-FROM prisma AS build
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+RUN npx prisma generate
 
 # Production
 FROM base AS production
@@ -26,10 +20,12 @@ ENV NODE_ENV=production
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=prisma /app/prisma ./prisma
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma.config.ts ./
+COPY --from=prisma /app/src/generated ./src/generated
+COPY prisma.config.ts ./
 COPY package.json ./
+COPY tsconfig.json ./
+COPY src ./src
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]

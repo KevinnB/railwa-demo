@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:development": "DOTENV_CONFIG_PATH=.env.development tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "tsc --noEmit",
+    "start": "tsx src/server.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
@@ -23,13 +23,13 @@
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.0",
     "ioredis": "^5.4.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "prisma": "^7.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
 }
