@@ -1,6 +1,8 @@
 import { prisma } from "../lib/prisma.js";
 import { cache } from "../lib/redis.js";
 
+export const MAX_PAGE_SIZE = 25;
+
 const CACHE_KEY_LIST_PREFIX = "items:list:";
 const cacheKeyList = (page: number, pageSize: number) =>
   `${CACHE_KEY_LIST_PREFIX}page=${page}&pageSize=${pageSize}`;

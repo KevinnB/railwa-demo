@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { authenticate } from "../middleware/authenticate.js";
-import { itemService } from "../services/item.service.js";
+import { itemService, MAX_PAGE_SIZE } from "../services/item.service.js";
 
 const router = Router();
 
@@ -24,7 +24,7 @@ const router = Router();
  *         schema:
  *           type: integer
  *           minimum: 1
- *           maximum: 100
+ *           maximum: 25
  *           default: 10
  *     responses:
  *       200:
@@ -58,7 +58,7 @@ const router = Router();
  */
 router.get("/items", authenticate, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 10));
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize as string) || 10));
   const result = await itemService.list(page, pageSize);
   res.json(result);
 });
