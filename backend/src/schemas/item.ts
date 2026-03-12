@@ -1,50 +1,48 @@
-export const itemSchema = {
-  type: "object",
-  properties: {
-    id: { type: "string", format: "uuid" },
-    name: { type: "string" },
-    description: { type: "string", nullable: true },
-    userId: { type: "string", nullable: true },
-    createdAt: { type: "string", format: "date-time" },
-    updatedAt: { type: "string", format: "date-time" },
-  },
-} as const;
+import { z } from "zod";
+import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 
-export const itemListSchema = {
-  type: "array",
-  items: itemSchema,
-} as const;
+extendZodWithOpenApi(z);
 
-export const createItemSchema = {
-  type: "object",
-  required: ["name"],
-  properties: {
-    name: { type: "string", minLength: 1, maxLength: 255 },
-    description: { type: "string", maxLength: 1000 },
-  },
-  additionalProperties: false,
-} as const;
+export const ItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    description: z.string().nullable(),
+    userId: z.string().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .openapi("Item");
 
-export const updateItemSchema = {
-  type: "object",
-  properties: {
-    name: { type: "string", minLength: 1, maxLength: 255 },
-    description: { type: "string", maxLength: 1000, nullable: true },
-  },
-  additionalProperties: false,
-} as const;
+export const CreateItemSchema = z
+  .object({
+    name: z.string().min(1).max(255),
+    description: z.string().max(1000).optional(),
+  })
+  .openapi("CreateItem");
 
-export const itemParamsSchema = {
-  type: "object",
-  required: ["id"],
-  properties: {
-    id: { type: "string", format: "uuid" },
-  },
-} as const;
+export const UpdateItemSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    description: z.string().max(1000).nullable().optional(),
+  })
+  .openapi("UpdateItem");
 
-export const errorSchema = {
-  type: "object",
-  properties: {
-    error: { type: "string" },
-  },
-} as const;
+export const PaginationQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(25).default(10),
+});
+
+export const PaginationMetaSchema = z.object({
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+});
+
+export const PaginatedItemsSchema = z
+  .object({
+    data: z.array(ItemSchema),
+    meta: PaginationMetaSchema,
+  })
+  .openapi("PaginatedItems");

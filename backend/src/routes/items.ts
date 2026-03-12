@@ -4,58 +4,6 @@ import { itemService, MAX_PAGE_SIZE } from "../services/item.service.js";
 
 const router = Router();
 
-/**
- * @swagger
- * /items:
- *   get:
- *     tags: [items]
- *     summary: List items (paginated)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - name: page
- *         in: query
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *       - name: pageSize
- *         in: query
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 25
- *           default: 10
- *     responses:
- *       200:
- *         description: Success
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Item'
- *                 meta:
- *                   type: object
- *                   properties:
- *                     page:
- *                       type: integer
- *                     pageSize:
- *                       type: integer
- *                     total:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 router.get("/items", authenticate, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize as string) || 10));
@@ -63,41 +11,6 @@ router.get("/items", authenticate, async (req: Request, res: Response) => {
   res.json(result);
 });
 
-/**
- * @swagger
- * /items/{id}:
- *   get:
- *     tags: [items]
- *     summary: Get an item by ID
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Success
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Item'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 router.get("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   const item = await itemService.getById(req.params.id);
   if (!item) {
@@ -107,122 +20,16 @@ router.get("/items/:id", authenticate, async (req: Request<{ id: string }>, res:
   res.json(item);
 });
 
-/**
- * @swagger
- * /items:
- *   post:
- *     tags: [items]
- *     summary: Create an item
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [name]
- *             properties:
- *               name:
- *                 type: string
- *                 minLength: 1
- *                 maxLength: 255
- *               description:
- *                 type: string
- *                 maxLength: 1000
- *     responses:
- *       201:
- *         description: Created
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Item'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 router.post("/items", authenticate, async (req: Request, res: Response) => {
   const item = await itemService.create(req.body, req.session.user.id);
   res.status(201).json(item);
 });
 
-/**
- * @swagger
- * /items/{id}:
- *   put:
- *     tags: [items]
- *     summary: Update an item
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 minLength: 1
- *                 maxLength: 255
- *               description:
- *                 type: string
- *                 maxLength: 1000
- *                 nullable: true
- *     responses:
- *       200:
- *         description: Success
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Item'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 router.put("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   const item = await itemService.update(req.params.id, req.body);
   res.json(item);
 });
 
-/**
- * @swagger
- * /items/{id}:
- *   delete:
- *     tags: [items]
- *     summary: Delete an item
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       204:
- *         description: No content
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 router.delete("/items/:id", authenticate, async (req: Request<{ id: string }>, res: Response) => {
   await itemService.remove(req.params.id);
   res.status(204).send();
