@@ -1,150 +1,245 @@
-import { FastifyInstance } from "fastify";
-import {
-  createItemSchema,
-  updateItemSchema,
-  itemParamsSchema,
-  itemSchema,
-  itemListSchema,
-  errorSchema,
-} from "../schemas/item.js";
+import { Router, Request, Response } from "express";
+import { prisma } from "../lib/prisma.js";
+import { cache } from "../lib/redis.js";
+import { authenticate } from "../middleware/authenticate.js";
 
-interface CreateItemBody {
-  name: string;
-  description?: string;
-}
+const router = Router();
 
-interface UpdateItemBody {
-  name?: string;
-  description?: string | null;
-}
-
-interface ItemParams {
-  id: string;
-}
+// All routes in this router require authentication
+router.use(authenticate);
 
 const CACHE_KEY_LIST = "protected-items:list";
 const cacheKeyById = (id: string) => `protected-items:${id}`;
 
-export default async function protectedItemRoutes(fastify: FastifyInstance) {
-  // All routes in this plugin require authentication
-  fastify.addHook("onRequest", fastify.authenticate);
+/**
+ * @swagger
+ * /protected/items:
+ *   get:
+ *     tags: [protected-items]
+ *     summary: List all items (auth required)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/items", async (_req: Request, res: Response) => {
+  const cached = await cache.get(CACHE_KEY_LIST);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
 
-  // GET /protected/items
-  fastify.get("/protected/items", {
-    schema: {
-      tags: ["protected-items"],
-      security: [{ bearerAuth: [] }],
-      response: { 200: itemListSchema, 401: errorSchema },
-    },
-  }, async (request, reply) => {
-    const cached = await fastify.cache.get(CACHE_KEY_LIST);
-    if (cached) {
-      return reply.send(cached);
-    }
-
-    const items = await fastify.db.item.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-
-    await fastify.cache.set(CACHE_KEY_LIST, items);
-    return reply.send(items);
+  const items = await prisma.item.findMany({
+    orderBy: { createdAt: "desc" },
   });
 
-  // GET /protected/items/:id
-  fastify.get<{ Params: ItemParams }>(
-    "/protected/items/:id",
-    {
-      schema: {
-        tags: ["protected-items"],
-        security: [{ bearerAuth: [] }],
-        params: itemParamsSchema,
-        response: { 200: itemSchema, 401: errorSchema, 404: errorSchema },
-      },
+  await cache.set(CACHE_KEY_LIST, items);
+  res.json(items);
+});
+
+/**
+ * @swagger
+ * /protected/items/{id}:
+ *   get:
+ *     tags: [protected-items]
+ *     summary: Get an item by ID (auth required)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
+
+  const cached = await cache.get(cacheKeyById(id));
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  const item = await prisma.item.findUnique({ where: { id } });
+  if (!item) {
+    res.status(404).json({ error: "Item not found" });
+    return;
+  }
+
+  await cache.set(cacheKeyById(id), item);
+  res.json(item);
+});
+
+/**
+ * @swagger
+ * /protected/items:
+ *   post:
+ *     tags: [protected-items]
+ *     summary: Create an item (auth required)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               description:
+ *                 type: string
+ *                 maxLength: 1000
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/items", async (req: Request, res: Response) => {
+  const item = await prisma.item.create({
+    data: {
+      ...req.body,
+      userId: req.session.user.id,
     },
-    async (request, reply) => {
-      const { id } = request.params;
+  });
 
-      const cached = await fastify.cache.get(cacheKeyById(id));
-      if (cached) {
-        return reply.send(cached);
-      }
+  await cache.del(CACHE_KEY_LIST);
+  res.status(201).json(item);
+});
 
-      const item = await fastify.db.item.findUnique({ where: { id } });
-      if (!item) {
-        return reply.status(404).send({ error: "Item not found" });
-      }
+/**
+ * @swagger
+ * /protected/items/{id}:
+ *   put:
+ *     tags: [protected-items]
+ *     summary: Update an item (auth required)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               description:
+ *                 type: string
+ *                 maxLength: 1000
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
 
-      await fastify.cache.set(cacheKeyById(id), item);
-      return reply.send(item);
-    }
-  );
+  const item = await prisma.item.update({
+    where: { id },
+    data: req.body,
+  });
 
-  // POST /protected/items
-  fastify.post<{ Body: CreateItemBody }>(
-    "/protected/items",
-    {
-      schema: {
-        tags: ["protected-items"],
-        security: [{ bearerAuth: [] }],
-        body: createItemSchema,
-        response: { 201: itemSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      const item = await fastify.db.item.create({
-        data: {
-          ...request.body,
-          userId: request.session.user.id,
-        },
-      });
+  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  res.json(item);
+});
 
-      await fastify.cache.del(CACHE_KEY_LIST);
-      return reply.status(201).send(item);
-    }
-  );
+/**
+ * @swagger
+ * /protected/items/{id}:
+ *   delete:
+ *     tags: [protected-items]
+ *     summary: Delete an item (auth required)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: No content
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.delete("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
 
-  // PUT /protected/items/:id
-  fastify.put<{ Params: ItemParams; Body: UpdateItemBody }>(
-    "/protected/items/:id",
-    {
-      schema: {
-        tags: ["protected-items"],
-        security: [{ bearerAuth: [] }],
-        params: itemParamsSchema,
-        body: updateItemSchema,
-        response: { 200: itemSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
+  await prisma.item.delete({ where: { id } });
+  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  res.status(204).send();
+});
 
-      const item = await fastify.db.item.update({
-        where: { id },
-        data: request.body,
-      });
-
-      await fastify.cache.del(CACHE_KEY_LIST, cacheKeyById(id));
-      return reply.send(item);
-    }
-  );
-
-  // DELETE /protected/items/:id
-  fastify.delete<{ Params: ItemParams }>(
-    "/protected/items/:id",
-    {
-      schema: {
-        tags: ["protected-items"],
-        security: [{ bearerAuth: [] }],
-        params: itemParamsSchema,
-        response: { 204: { type: "null", description: "No content" }, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-
-      await fastify.db.item.delete({ where: { id } });
-      await fastify.cache.del(CACHE_KEY_LIST, cacheKeyById(id));
-      return reply.status(204).send();
-    }
-  );
-}
+export default router;

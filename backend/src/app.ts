@@ -1,67 +1,74 @@
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import dbPlugin from "./plugins/db.js";
-import redisPlugin from "./plugins/redis.js";
-import authPlugin from "./plugins/auth.js";
+import express from "express";
+import cors from "cors";
+import swaggerUi from "swagger-ui-express";
+import { openApiDocument } from "./openapi.js";
+import { auth } from "./lib/auth.js";
+import { prisma } from "./lib/prisma.js";
+import { redis } from "./lib/redis.js";
 import itemRoutes from "./routes/items.js";
 import protectedItemRoutes from "./routes/protected-items.js";
 import authRoutes from "./routes/auth.js";
 import healthRoutes from "./routes/health.js";
 
-export async function buildApp() {
-  const app = Fastify({
-    logger: true,
+export function buildApp() {
+  const app = express();
+
+  // Middleware
+  app.use(express.json());
+  app.use(
+    cors({
+      origin: process.env.CLIENT_ORIGIN || true,
+      credentials: true,
+    })
+  );
+
+  // Swagger UI
+  app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
+  // Better Auth catch-all (hidden from Swagger — handled by explicit auth routes)
+  app.all("/api/auth/*path", async (req, res) => {
+    try {
+      const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (value) headers.append(key, String(value));
+      }
+
+      const request = new Request(url.toString(), {
+        method: req.method,
+        headers,
+        ...(req.body && Object.keys(req.body).length > 0
+          ? { body: JSON.stringify(req.body) }
+          : {}),
+      });
+
+      const response = await auth.handler(request);
+      res.status(response.status);
+      response.headers.forEach((value, key) => res.setHeader(key, value));
+      const text = await response.text();
+      res.send(text || null);
+    } catch (error) {
+      console.error("Auth handler error:", error);
+      res.status(500).json({ error: "Internal authentication error" });
+    }
   });
-
-  // CORS — must be registered before auth routes
-  await app.register(cors, {
-    origin: process.env.CLIENT_ORIGIN || true,
-    credentials: true,
-  });
-
-  // Swagger
-  const swagger = await import("@fastify/swagger");
-  const swaggerUi = await import("@fastify/swagger-ui");
-
-  await app.register(swagger.default, {
-    openapi: {
-      info: {
-        title: "Railwa Demo API",
-        version: "1.0.0",
-        description: "Fastify + Prisma + Redis POC",
-      },
-      tags: [
-        { name: "auth", description: "Authentication (sign up, sign in)" },
-        { name: "items", description: "Items CRUD (public)" },
-        { name: "protected-items", description: "Items CRUD (auth required)" },
-        { name: "health", description: "Health checks" },
-      ],
-      components: {
-        securitySchemes: {
-          bearerAuth: {
-            type: "http",
-            scheme: "bearer",
-            description: "Use the token from POST /auth/sign-in response",
-          },
-        },
-      },
-    },
-  });
-
-  await app.register(swaggerUi.default, {
-    routePrefix: "/docs",
-  });
-
-  // Plugins
-  await app.register(dbPlugin);
-  await app.register(redisPlugin);
-  await app.register(authPlugin);
 
   // Routes
-  await app.register(authRoutes);
-  await app.register(itemRoutes);
-  await app.register(protectedItemRoutes);
-  await app.register(healthRoutes);
+  app.use(authRoutes);
+  app.use(itemRoutes);
+  app.use("/protected", protectedItemRoutes);
+  app.use(healthRoutes);
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.log("Shutting down...");
+    await prisma.$disconnect();
+    redis.disconnect();
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
   return app;
 }

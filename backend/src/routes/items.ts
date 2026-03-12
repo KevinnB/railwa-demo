@@ -1,139 +1,198 @@
-import { FastifyInstance } from "fastify";
-import {
-  createItemSchema,
-  updateItemSchema,
-  itemParamsSchema,
-  itemSchema,
-  itemListSchema,
-  errorSchema,
-} from "../schemas/item.js";
+import { Router, Request, Response } from "express";
+import { prisma } from "../lib/prisma.js";
+import { cache } from "../lib/redis.js";
 
-interface CreateItemBody {
-  name: string;
-  description?: string;
-}
-
-interface UpdateItemBody {
-  name?: string;
-  description?: string | null;
-}
-
-interface ItemParams {
-  id: string;
-}
+const router = Router();
 
 const CACHE_KEY_LIST = "items:list";
 const cacheKeyById = (id: string) => `items:${id}`;
 
-export default async function itemRoutes(fastify: FastifyInstance) {
-  // GET /items
-  fastify.get("/items", {
-    schema: {
-      tags: ["items"],
-      response: { 200: itemListSchema },
-    },
-  }, async (request, reply) => {
-    const cached = await fastify.cache.get(CACHE_KEY_LIST);
-    if (cached) {
-      return reply.send(cached);
-    }
+/**
+ * @swagger
+ * /items:
+ *   get:
+ *     tags: [items]
+ *     summary: List all items
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Item'
+ */
+router.get("/items", async (_req: Request, res: Response) => {
+  const cached = await cache.get(CACHE_KEY_LIST);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
 
-    const items = await fastify.db.item.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-
-    await fastify.cache.set(CACHE_KEY_LIST, items);
-    return reply.send(items);
+  const items = await prisma.item.findMany({
+    orderBy: { createdAt: "desc" },
   });
 
-  // GET /items/:id
-  fastify.get<{ Params: ItemParams }>(
-    "/items/:id",
-    {
-      schema: {
-        tags: ["items"],
-        params: itemParamsSchema,
-        response: { 200: itemSchema, 404: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
+  await cache.set(CACHE_KEY_LIST, items);
+  res.json(items);
+});
 
-      const cached = await fastify.cache.get(cacheKeyById(id));
-      if (cached) {
-        return reply.send(cached);
-      }
+/**
+ * @swagger
+ * /items/{id}:
+ *   get:
+ *     tags: [items]
+ *     summary: Get an item by ID
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
 
-      const item = await fastify.db.item.findUnique({ where: { id } });
-      if (!item) {
-        return reply.status(404).send({ error: "Item not found" });
-      }
+  const cached = await cache.get(cacheKeyById(id));
+  if (cached) {
+    res.json(cached);
+    return;
+  }
 
-      await fastify.cache.set(cacheKeyById(id), item);
-      return reply.send(item);
-    }
-  );
+  const item = await prisma.item.findUnique({ where: { id } });
+  if (!item) {
+    res.status(404).json({ error: "Item not found" });
+    return;
+  }
 
-  // POST /items
-  fastify.post<{ Body: CreateItemBody }>(
-    "/items",
-    {
-      schema: {
-        tags: ["items"],
-        body: createItemSchema,
-        response: { 201: itemSchema },
-      },
-    },
-    async (request, reply) => {
-      const item = await fastify.db.item.create({
-        data: request.body,
-      });
+  await cache.set(cacheKeyById(id), item);
+  res.json(item);
+});
 
-      await fastify.cache.del(CACHE_KEY_LIST);
-      return reply.status(201).send(item);
-    }
-  );
+/**
+ * @swagger
+ * /items:
+ *   post:
+ *     tags: [items]
+ *     summary: Create an item
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               description:
+ *                 type: string
+ *                 maxLength: 1000
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ */
+router.post("/items", async (req: Request, res: Response) => {
+  const item = await prisma.item.create({
+    data: req.body,
+  });
 
-  // PUT /items/:id
-  fastify.put<{ Params: ItemParams; Body: UpdateItemBody }>(
-    "/items/:id",
-    {
-      schema: {
-        tags: ["items"],
-        params: itemParamsSchema,
-        body: updateItemSchema,
-        response: { 200: itemSchema },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
+  await cache.del(CACHE_KEY_LIST);
+  res.status(201).json(item);
+});
 
-      const item = await fastify.db.item.update({
-        where: { id },
-        data: request.body,
-      });
+/**
+ * @swagger
+ * /items/{id}:
+ *   put:
+ *     tags: [items]
+ *     summary: Update an item
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               description:
+ *                 type: string
+ *                 maxLength: 1000
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Item'
+ */
+router.put("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
 
-      await fastify.cache.del(CACHE_KEY_LIST, cacheKeyById(id));
-      return reply.send(item);
-    }
-  );
+  const item = await prisma.item.update({
+    where: { id },
+    data: req.body,
+  });
 
-  // DELETE /items/:id
-  fastify.delete<{ Params: ItemParams }>(
-    "/items/:id",
-    {
-      schema: {
-        tags: ["items"],
-        params: itemParamsSchema,
-        response: { 204: { type: "null", description: "No content" } },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
+  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  res.json(item);
+});
 
-      await fastify.db.item.delete({ where: { id } });
-      await fastify.cache.del(CACHE_KEY_LIST, cacheKeyById(id));
-      return reply.status(204).send();
-    }
-  );
-}
+/**
+ * @swagger
+ * /items/{id}:
+ *   delete:
+ *     tags: [items]
+ *     summary: Delete an item
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: No content
+ */
+router.delete("/items/:id", async (req: Request<{ id: string }>, res: Response) => {
+  const { id } = req.params;
+
+  await prisma.item.delete({ where: { id } });
+  await cache.del(CACHE_KEY_LIST, cacheKeyById(id));
+  res.status(204).send();
+});
+
+export default router;

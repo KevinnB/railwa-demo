@@ -1,337 +1,358 @@
-import { FastifyInstance } from "fastify";
+import { Router, Request, Response } from "express";
 import { auth } from "../lib/auth.js";
 import { fromNodeHeaders } from "better-auth/node";
 
-// --- Schemas ---
+const router = Router();
 
-const signUpBodySchema = {
-  type: "object",
-  required: ["name", "email", "password"],
-  properties: {
-    name: { type: "string", minLength: 1 },
-    email: { type: "string", format: "email" },
-    password: { type: "string", minLength: 8 },
-  },
-  additionalProperties: false,
-} as const;
+// --- Sign Up / Sign In / Sign Out ---
 
-const signInBodySchema = {
-  type: "object",
-  required: ["email", "password"],
-  properties: {
-    email: { type: "string", format: "email" },
-    password: { type: "string" },
-  },
-  additionalProperties: false,
-} as const;
+/**
+ * @swagger
+ * /auth/sign-up:
+ *   post:
+ *     tags: [auth]
+ *     summary: Create a new account
+ *     description: Returns a bearer token.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email, password]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/auth/sign-up", async (req: Request, res: Response) => {
+  try {
+    const result = await auth.api.signUpEmail({ body: req.body });
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message ?? "Sign up failed" });
+  }
+});
 
-const changePasswordBodySchema = {
-  type: "object",
-  required: ["currentPassword", "newPassword"],
-  properties: {
-    currentPassword: { type: "string" },
-    newPassword: { type: "string", minLength: 8 },
-    revokeOtherSessions: { type: "boolean" },
-  },
-  additionalProperties: false,
-} as const;
+/**
+ * @swagger
+ * /auth/sign-in:
+ *   post:
+ *     tags: [auth]
+ *     summary: Sign in with email and password
+ *     description: Copy the token to the Authorize dialog.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/auth/sign-in", async (req: Request, res: Response) => {
+  try {
+    const result = await auth.api.signInEmail({ body: req.body });
+    res.json(result);
+  } catch (error: any) {
+    res.status(401).json({ error: error.message ?? "Invalid credentials" });
+  }
+});
 
-const updateUserBodySchema = {
-  type: "object",
-  properties: {
-    name: { type: "string", minLength: 1 },
-    image: { type: "string", nullable: true },
-  },
-  additionalProperties: false,
-} as const;
+/**
+ * @swagger
+ * /auth/sign-out:
+ *   post:
+ *     tags: [auth]
+ *     summary: Sign out
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Message'
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/auth/sign-out", async (req: Request, res: Response) => {
+  try {
+    await auth.api.signOut({
+      headers: fromNodeHeaders(req.headers),
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(401).json({ error: error.message ?? "Sign out failed" });
+  }
+});
 
-const authResponseSchema = {
-  type: "object",
-  properties: {
-    token: { type: "string", description: "Bearer token — use in Authorize dialog" },
-    user: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        name: { type: "string" },
-        email: { type: "string" },
-        emailVerified: { type: "boolean" },
-      },
-    },
-  },
-} as const;
+// --- Session ---
 
-const sessionResponseSchema = {
-  type: "object",
-  properties: {
-    session: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        userId: { type: "string" },
-        token: { type: "string" },
-        expiresAt: { type: "string", format: "date-time" },
-        ipAddress: { type: "string", nullable: true },
-        userAgent: { type: "string", nullable: true },
-      },
-    },
-    user: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        name: { type: "string" },
-        email: { type: "string" },
-        emailVerified: { type: "boolean" },
-        image: { type: "string", nullable: true },
-      },
-    },
-  },
-} as const;
+/**
+ * @swagger
+ * /auth/session:
+ *   get:
+ *     tags: [auth]
+ *     summary: Get current session and user
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SessionResponse'
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/auth/session", async (req: Request, res: Response) => {
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(req.headers),
+  });
 
-const sessionListSchema = {
-  type: "array",
-  items: {
-    type: "object",
-    properties: {
-      id: { type: "string" },
-      userId: { type: "string" },
-      token: { type: "string" },
-      expiresAt: { type: "string", format: "date-time" },
-      ipAddress: { type: "string", nullable: true },
-      userAgent: { type: "string", nullable: true },
-    },
-  },
-} as const;
+  if (!session) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
 
-const messageSchema = {
-  type: "object",
-  properties: {
-    success: { type: "boolean" },
-  },
-} as const;
+  res.json(session);
+});
 
-const errorSchema = {
-  type: "object",
-  properties: {
-    error: { type: "string" },
-  },
-} as const;
+/**
+ * @swagger
+ * /auth/sessions:
+ *   get:
+ *     tags: [auth]
+ *     summary: List all active sessions
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                   userId:
+ *                     type: string
+ *                   token:
+ *                     type: string
+ *                   expiresAt:
+ *                     type: string
+ *                     format: date-time
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/auth/sessions", async (req: Request, res: Response) => {
+  try {
+    const sessions = await auth.api.listSessions({
+      headers: fromNodeHeaders(req.headers),
+    });
+    res.json(sessions);
+  } catch (error: any) {
+    res.status(401).json({ error: error.message ?? "Not authenticated" });
+  }
+});
 
-// --- Interfaces ---
-
-interface SignUpBody {
-  name: string;
-  email: string;
-  password: string;
-}
-
-interface SignInBody {
-  email: string;
-  password: string;
-}
-
-interface ChangePasswordBody {
-  currentPassword: string;
-  newPassword: string;
-  revokeOtherSessions?: boolean;
-}
-
-interface UpdateUserBody {
-  name?: string;
-  image?: string | null;
-}
-
-interface RevokeSessionParams {
-  token: string;
-}
-
-export default async function authRoutes(fastify: FastifyInstance) {
-  // --- Sign Up / Sign In / Sign Out ---
-
-  fastify.post<{ Body: SignUpBody }>(
-    "/auth/sign-up",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Create a new account. Returns a bearer token.",
-        body: signUpBodySchema,
-        response: { 200: authResponseSchema, 400: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        const result = await auth.api.signUpEmail({ body: request.body });
-        return reply.send(result);
-      } catch (error: any) {
-        return reply.status(400).send({ error: error.message ?? "Sign up failed" });
-      }
-    }
-  );
-
-  fastify.post<{ Body: SignInBody }>(
-    "/auth/sign-in",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Sign in with email and password. Copy the token to the Authorize dialog.",
-        body: signInBodySchema,
-        response: { 200: authResponseSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        const result = await auth.api.signInEmail({ body: request.body });
-        return reply.send(result);
-      } catch (error: any) {
-        return reply.status(401).send({ error: error.message ?? "Invalid credentials" });
-      }
-    }
-  );
-
-  fastify.post(
-    "/auth/sign-out",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Sign out and invalidate the current session.",
-        security: [{ bearerAuth: [] }],
-        response: { 200: messageSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        await auth.api.signOut({
-          headers: fromNodeHeaders(request.headers),
-        });
-        return reply.send({ success: true });
-      } catch (error: any) {
-        return reply.status(401).send({ error: error.message ?? "Sign out failed" });
-      }
-    }
-  );
-
-  // --- Session ---
-
-  fastify.get(
-    "/auth/session",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Get the current session and user.",
-        security: [{ bearerAuth: [] }],
-        response: { 200: sessionResponseSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      const session = await auth.api.getSession({
-        headers: fromNodeHeaders(request.headers),
+/**
+ * @swagger
+ * /auth/sessions/{token}/revoke:
+ *   post:
+ *     tags: [auth]
+ *     summary: Revoke a session by token
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: token
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Message'
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post(
+  "/auth/sessions/:token/revoke",
+  async (req: Request<{ token: string }>, res: Response) => {
+    try {
+      await auth.api.revokeSession({
+        headers: fromNodeHeaders(req.headers),
+        body: { token: req.params.token },
       });
-
-      if (!session) {
-        return reply.status(401).send({ error: "Not authenticated" });
-      }
-
-      return reply.send(session);
+      res.json({ success: true });
+    } catch (error: any) {
+      res
+        .status(401)
+        .json({ error: error.message ?? "Failed to revoke session" });
     }
-  );
+  }
+);
 
-  fastify.get(
-    "/auth/sessions",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "List all active sessions for the current user.",
-        security: [{ bearerAuth: [] }],
-        response: { 200: sessionListSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        const sessions = await auth.api.listSessions({
-          headers: fromNodeHeaders(request.headers),
-        });
-        return reply.send(sessions);
-      } catch (error: any) {
-        return reply.status(401).send({ error: error.message ?? "Not authenticated" });
-      }
-    }
-  );
+// --- User Management ---
 
-  fastify.post<{ Params: RevokeSessionParams }>(
-    "/auth/sessions/:token/revoke",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Revoke a specific session by its token.",
-        security: [{ bearerAuth: [] }],
-        params: {
-          type: "object",
-          required: ["token"],
-          properties: { token: { type: "string" } },
-        },
-        response: { 200: messageSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        await auth.api.revokeSession({
-          headers: fromNodeHeaders(request.headers),
-          body: { token: request.params.token },
-        });
-        return reply.send({ success: true });
-      } catch (error: any) {
-        return reply.status(401).send({ error: error.message ?? "Failed to revoke session" });
-      }
-    }
-  );
+/**
+ * @swagger
+ * /auth/user:
+ *   patch:
+ *     tags: [auth]
+ *     summary: Update current user
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *               image:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SessionResponse'
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.patch("/auth/user", async (req: Request, res: Response) => {
+  try {
+    const result = await auth.api.updateUser({
+      headers: fromNodeHeaders(req.headers),
+      body: req.body,
+    });
+    res.json(result);
+  } catch (error: any) {
+    res.status(401).json({ error: error.message ?? "Update failed" });
+  }
+});
 
-  // --- User Management ---
+/**
+ * @swagger
+ * /auth/change-password:
+ *   post:
+ *     tags: [auth]
+ *     summary: Change password
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *               revokeOtherSessions:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Message'
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/auth/change-password", async (req: Request, res: Response) => {
+  try {
+    await auth.api.changePassword({
+      headers: fromNodeHeaders(req.headers),
+      body: req.body,
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res
+      .status(400)
+      .json({ error: error.message ?? "Password change failed" });
+  }
+});
 
-  fastify.patch<{ Body: UpdateUserBody }>(
-    "/auth/user",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Update the current user's name or image.",
-        security: [{ bearerAuth: [] }],
-        body: updateUserBodySchema,
-        response: { 200: sessionResponseSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        const result = await auth.api.updateUser({
-          headers: fromNodeHeaders(request.headers),
-          body: request.body,
-        });
-        return reply.send(result);
-      } catch (error: any) {
-        return reply.status(401).send({ error: error.message ?? "Update failed" });
-      }
-    }
-  );
-
-  fastify.post<{ Body: ChangePasswordBody }>(
-    "/auth/change-password",
-    {
-      schema: {
-        tags: ["auth"],
-        description: "Change the current user's password. Optionally revoke other sessions.",
-        security: [{ bearerAuth: [] }],
-        body: changePasswordBodySchema,
-        response: { 200: messageSchema, 400: errorSchema, 401: errorSchema },
-      },
-    },
-    async (request, reply) => {
-      try {
-        await auth.api.changePassword({
-          headers: fromNodeHeaders(request.headers),
-          body: request.body,
-        });
-        return reply.send({ success: true });
-      } catch (error: any) {
-        return reply.status(400).send({ error: error.message ?? "Password change failed" });
-      }
-    }
-  );
-}
+export default router;
